@@ -7,7 +7,7 @@ public_key, private_key = rsa.newkeys(2048)  # Generates a pair of 2048-bit keys
 message = "This is a secret message.".encode('utf-8')  # Encode the message to bytes
 
 # 3. Encrypt the message using the public key
-ciphertext = rsa.encrypt(message, public_key)
+ciphertext = rsa.encrypt(message, public_key) 
 print(f"Encrypted message: {ciphertext.hex()}")  # Display ciphertext in hexadecimal format
 
 # 4. Decrypt the message using the private key
