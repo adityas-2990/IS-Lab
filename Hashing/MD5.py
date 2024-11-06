@@ -12,6 +12,7 @@ def md5_hash(input_string):
     
     return md5_digest
 
+
 # Example usage
 if __name__ == "__main__":
     message = "Hello, World!"
