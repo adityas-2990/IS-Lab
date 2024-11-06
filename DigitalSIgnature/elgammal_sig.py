@@ -1,47 +1,91 @@
-from Crypto.PublicKey import ElGamal
-from Crypto.Random import get_random_bytes
-from Crypto.Random import random
+import rsa
+import socket
+import hashlib
+from Crypto.PublicKey import DSA
+from Crypto.Signature import DSS
 from Crypto.Hash import SHA256
 
-# Step 1: Key Generation
-def generate_keys():
-    key = ElGamal.generate(2048, get_random_bytes)  # Fixed: get_random_bytes from Crypto.Random
-    public_key = key.publickey()
-    return key, public_key
+# Generate RSA public and private keys (for encryption/decryption)
+public_key_rsa, private_key_rsa = rsa.newkeys(2048)
 
-# Step 2: Sign the message using the private key
-def sign_message(private_key, message):
-    # Hash the message using SHA-256
-    hashed_message = SHA256.new(message.encode('utf-8')).digest()
-    
-    # Generate a signature using the private key
-    k = random.StrongRandom().randint(1, private_key.p - 2)
-    signature = private_key.sign(hashed_message, k)
-    
-    return signature
+# Generate DSA keys (for signing/verifying)
+private_key_dsa = DSA.generate(2048)
+public_key_dsa = private_key_dsa.publickey()
 
-# Step 3: Verify the signature using the public key
-def verify_signature(public_key, message, signature):
-    # Hash the message using SHA-256
-    hashed_message = SHA256.new(message.encode('utf-8')).digest()
-    
-    # Verify the signature
-    return public_key.verify(hashed_message, signature)
+def verify_signature(public_key, message_hash, signature):
+    # Verifies the message hash against the received signature using DSA public key
+    verifier = DSS.new(public_key, 'fips-186-3')
+    try:
+        verifier.verify(message_hash, signature)
+        return True
+    except ValueError:
+        return False
 
-# Example usage:
-message = "This is a secure ElGamal message."
+def start_server():
+    # Create a TCP/IP socket
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-# Generate ElGamal keys
-private_key, public_key = generate_keys()
+    # Bind the socket to the address and port
+    server_address = ('localhost', 12345)
+    server_socket.bind(server_address)
 
-# Sign the message
-signature = sign_message(private_key, message)
-print("Message:", message)
-print("Signature:", signature)
+    # Listen for incoming connections
+    server_socket.listen(1)
+    print("Server is listening on port 12345...")
 
-# Verify the signature
-is_verified = verify_signature(public_key, message, signature)
-if is_verified:
-    print("Signature is valid.")
-else:
-    print("Signature is invalid.")
+    while True:
+        # Wait for a connection
+        connection, client_address = server_socket.accept()
+        try:
+            print(f"Connection from {client_address} established.")
+
+            # Send the RSA public key to the client for encryption
+            public_key_data = public_key_rsa.save_pkcs1()  # Export the RSA public key as bytes
+            connection.sendall(public_key_data)
+            print("RSA public key sent to client.")
+
+            # Receive the hashed message from the client
+            received_hash = connection.recv(1024)
+            print(f"Received hash: {received_hash.hex()}")
+
+            # Receive the signature from the client
+            received_signature = connection.recv(2048)
+            print(f"Received signature: {received_signature.hex()}")
+
+            # Receive the encrypted data from the client
+            data = b""
+            while True:
+                chunk = connection.recv(2048)
+                if not chunk:
+                    break
+                data += chunk
+
+            # Decrypt the received message
+            decrypted_message = rsa.decrypt(data, private_key_rsa)
+            decrypted_message_str = decrypted_message.decode('utf-8')  # Decode the message to string
+            print(f"Decrypted message: {decrypted_message_str}")
+
+            # Verify the received hash matches the decrypted message
+            computed_hash = hashlib.md5(decrypted_message).hexdigest().encode()  # MD5 hash encoded to bytes
+            if received_hash == computed_hash:
+                print("Hashes match. Message integrity verified.")
+            else:
+                print("Hashes do not match. Message may be tampered.")
+
+            # Verify the digital signature with the DSA public key
+            message_hash_obj = SHA256.new(decrypted_message)
+            is_verified = verify_signature(public_key_dsa, message_hash_obj, received_signature)
+            if is_verified:
+                print("Signature is valid.")
+            else:
+                print("Signature is invalid.")
+
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
+        finally:
+            connection.close()
+            print("Connection closed.")
+
+if __name__ == "__main__":
+    start_server()
